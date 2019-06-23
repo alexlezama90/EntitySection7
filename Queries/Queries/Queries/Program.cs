@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Data.Entity;
 
 namespace Queries
 {
@@ -9,91 +10,85 @@ namespace Queries
         {
             var context = new PlutoContext();
 
-            ////Restriction
-            //var query =
-            //    from c in context.Courses
-            //    where c.Level == 1 && c.Author.Id == 1 //Restrictions
-            //    select c;
+            #region Lazy Loading
+            //var course = context.Courses.Single(c => c.Id == 2);
+            //        //Singleton methods like Single, SingleOrDefault, First, FirstOrDefault, 
+            //        //Count, Max, Average, etc., cause an immediate query execution
 
-            ////Ordering
-            //var query =
-            //    from c in context.Courses
-            //    where c.Author.Id == 1
-            //    orderby c.Level descending, c.Name //Ordering
-            //    select c;         //descending keyword
+            //foreach(var tag in course.Tags) //Thanks to the "virtual" keyword in the navigation property >Tags< of our Course Entity the Tags are not loaded immediatly
+            //    Console.WriteLine(tag.Name); //The tags are queried when we iterate the Tags collection of the Course
 
-            ////Projection        We can return different objects with fewer properties (DTOs), even anonymous objects
-            //var query =
-            //    from c in context.Courses
-            //    where c.Author.Id == 1
-            //    orderby c.Level descending, c.Name
-            //    select new { Name = c.Name, Author = c.Author.Name };
-            //    //select new CourseDTO //Also we could use the constructor new CourseDTO (c.Name, c.Author.Name)
-            //    //{
-            //    //    Name = c.Name,
-            //    //    Author = c.Author.Name
-            //    //};
+            //
+            // Lazy loading can be usefull in situation when loading a bunch of related objects can be costly.
+            // Lazy loading Loads the Main objects and then loads the related objects on demand.
+            // *AVOID LAZY LOADING IN WEB APPLICATIONS*
 
-            ////Grouping        //This one breaks our result into different groups
-            //var query =
-            //    from c in context.Courses
-            //    group c by c.Level into g
-            //    select g;
-
-            //foreach (var group in query)
-            //{
-            //    Console.WriteLine(group.Key);
-
-            //    foreach (var course in group)
-            //        Console.WriteLine("\t{0}", course.Name);
-            //}
-
-            ////Grouping with other functions
-            //var query =
-            //    from c in context.Courses
-            //    group c by c.Level into g
-            //    select g;
-
-            //foreach (var group in query)
-            //{
-            //    Console.WriteLine("{0}, ({1})", group.Key, group.Count()));
-            //}
-
-            //////Joins
-            ////Inner Joins
-            //var query =
-            //    from c in context.Courses
-            //    join a in context.Authors on c.AuthorId equals a.Id
-            //    select new { CourseName = c.Name, AuthorName = a.Name };
+            //We can disable the Lazy loading in the entire context through adding a configuration in the Context class consntructor:
+            //             this.Configuration.LazyLoadingEnabled = false;
 
 
-            ////Group Joins works like a left join in SQL
-            //var query =
-            //    from a in context.Authors
-            //    join c in context.Courses on a.Id equals c.Author.Id into g
-            //    select new { AuthorName = a.Name, Courses = g }; //g for the List of courses per autor; g.Count() for just the quantity of courses per autor
+            //Using Lazy loading innappropiatly can lead to  the N + 1 problem.
+            //"In order to get N entities and their related entities, we'll end up with N + 1 queries" 
+            #endregion
 
-            //foreach (var x in query)
-            //{
-            //    Console.WriteLine("{0} ({1})", x.AuthorName, x.Courses.Count());
+            #region N +1 Problem
+            //var courses = context.Courses.ToList(); // Query No.1 (1)
 
-            //    foreach (var course in x.Courses)
-            //        Console.WriteLine("{0}", course.Name);
-            //}
+            //foreach (var course in courses)
+            //    Console.WriteLine("{0} by {1}", course.Name, course.Author.Name); //Entity Framework will execute a query per each course to get its author (N)
 
-            //Cross Join cross every author with every course
-            var query =
-                from a in context.Authors
-                from c in context.Courses
-                select new { AuthorName = a.Name, CourseName = c.Name };
+            //// N + 1 (Check SQL Profiler to check all the queries...
+            #endregion
 
-            foreach (var cross in query)
-            {
-                Console.WriteLine("{0} {1}", cross.AuthorName, cross.CourseName);
-            }
+            #region Eager Loading
+            //Eager loading is the opposite of Lazy loading 
+            //Eager Loading loads everything up front to prevent additional queries to the database
+            //var courses = context.Courses.ToList();
+            //var courses = context.Courses.Include("Author").ToList(); //Magic strings
+            //var courses = context.Courses.Include(c => c.Author).ToList();  //remember to import "using System.Data.Entity"
 
-            Console.WriteLine(query.Count());
+            //foreach(var course in courses)
+            //    Console.WriteLine("{0} by {1}", course.Name, course.Author.Name); //Entity Framework will execute a query per each course to get its author (N)
 
+
+            //For single properties***
+            //context.Courses.Include(c => c.Author.Address);
+
+            //For collection properties****
+            //context.Courses.Include(a => a.Tags).Select(t => t.Cover);
+
+            //Uses JOINs and will only do one roundtrip (consultará la bd una vez [hará de golpe todas las búsquedas])
+            #endregion
+
+            #region Explicit Loading
+            //Will do separete queries and will do multiple round-trips
+
+            #region Eager Loading Version
+            //var author = context.Authors.Include(a => a.Courses).Single(a => a.Id == 1);
+
+            //foreach(var course in author.Courses)
+            //    Console.WriteLine("{0}", course.Name);
+            #endregion
+
+            //Explicit version
+            //var author = context.Authors.Single(a => a.Id == 1);
+            //////MSDN way //Just works for single entries (1 author)
+            ////context.Entry(author).Collection(a => a.Courses).Load();
+            ////context.Entry(author).Collection(a => a.Courses).Query().Where(c => c.FullPrice == 0).Load();
+
+            ////Mosh Way
+            ////context.Courses.Where(c => c.AuthorId == author.Id).Load();
+            //context.Courses.Where(c => c.AuthorId == author.Id && c.FullPrice == 0).Load();
+
+            //foreach (var course in author.Courses)
+            //    Console.WriteLine("{0}", course.Name);
+
+            var authors = context.Authors.ToList();
+            var authorIds = authors.Select(c => c.Id);
+
+            context.Courses.Where(c => authorIds.Contains(c.AuthorId) && c.FullPrice == 0).Load();
+
+            #endregion
 
         }
     }
